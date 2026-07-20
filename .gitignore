@@ -1,4 +1,3 @@
-computervision/Computer_Vision/Porfolio_Projects/__pycache__/dynamic_feature_vector_builder.cpython-312.pyc
-computervision/Computer_Vision/Porfolio_Projects/custom_model_final_draft.pt
-computervision/Computer_Vision/Porfolio_Projects/custom_model.pt
-computervision/Computer_Vision/Porfolio_Projects/custom_modelV1.pt
+__pycache__/
+*.pyc
+*.pt
