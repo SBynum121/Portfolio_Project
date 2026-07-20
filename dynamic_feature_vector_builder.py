@@ -1,54 +1,93 @@
-
+# Standard library
+import inspect
 import os
 import shutil
+from io import BytesIO
 from pathlib import Path
 from typing import Any
-from io import BytesIO
+
+
+# Numerical and data processing
 import numpy as np
 import pandas as pd
 from numpy.typing import NDArray
+
+
+# Image processing
 import cv2
 from PIL import Image
 from skimage import data, exposure
 from skimage.feature import hog, local_binary_pattern
+
+
+# Visualization
 import matplotlib.pyplot as plt
 import seaborn as sns
-from matplotlib.offsetbox import OffsetImage, AnnotationBbox
+from matplotlib.offsetbox import AnnotationBbox, OffsetImage
+
+
+# Scikit-learn
 from sklearn.cluster import KMeans
 from sklearn.datasets import make_blobs
 from sklearn.decomposition import PCA
 from sklearn.metrics import silhouette_score
-from sklearn.preprocessing import StandardScaler, OneHotEncoder
-import umap
+from sklearn.preprocessing import OneHotEncoder, StandardScaler
+
+
+# Clustering and dimensionality reduction
 import hdbscan
+import umap
+
+
+# PyTorch and TorchVision
 import torch
-from torchvision.models import resnet50, ResNet50_Weights
-from transformers import CLIPProcessor, CLIPModel
+import torchvision.transforms.v2 as v2
+from torchvision.models import (
+    MobileNet_V3_Small_Weights,
+    ResNet50_Weights,
+    mobilenet_v3_small,
+    resnet50,
+)
+
+
+# Hugging Face Transformers
+from transformers import (
+    AutoImageProcessor,
+    AutoModel,
+    CLIPModel,
+    CLIPProcessor,
+)
+from transformers.image_utils import load_image
+
+
+# TensorFlow and Keras
 import tensorflow as tf
 from tensorflow import keras
-from tensorflow.keras.datasets import cifar10
-from tensorflow.keras.models import Model
 from tensorflow.keras import datasets, layers, models
-from tensorflow.keras.layers import (
-    Input,
-    Dense,
-    Conv2D,
-    BatchNormalization,
-    Activation,
-    AveragePooling2D,
-    Flatten,
-    Add,
-)
-from tensorflow.keras.optimizers import Adam
 from tensorflow.keras.callbacks import (
-    ModelCheckpoint,
     LearningRateScheduler,
+    ModelCheckpoint,
     ReduceLROnPlateau,
 )
+from tensorflow.keras.datasets import cifar10
+from tensorflow.keras.layers import (
+    Activation,
+    Add,
+    AveragePooling2D,
+    BatchNormalization,
+    Conv2D,
+    Dense,
+    Flatten,
+    Input,
+)
+from tensorflow.keras.models import Model
+from tensorflow.keras.optimizers import Adam
 from tensorflow.keras.preprocessing.image import ImageDataGenerator
 from tensorflow.keras.regularizers import l2
+
+
+# HTTP requests
 import requests
-import inspect
 
 
 
@@ -56,6 +95,12 @@ import inspect
 # Take a step back and read all of the code fully understand how it all works. write down each class on a piece of paper. 
 # set up methods to run all of these unsuperviseed learning models 
 # replace all hard coded variables with dynamic ones
+
+#need to make this collect images file and turn it into a static method. lotta repeated cide for no good reason. 
+#need to run quizes on this code to ensure I fully understand how each part works. 
+# write down the steps for each method and ensure you understand the flow of data from image collection, preprocessing, embedding extraction, and clustering.
+# This class is responsible for managing the deep embedding extraction process for different models (ResNet, CLIP, MobileNetV3, DINOv3). It handles the collection of image files, preprocessing, and extraction of embeddings using the specified model.
+
 """ min_cluster_size = max(15, round(img_count * 0.05))   # knob: lower = more, smaller clusters
 min_samples = 7 """
 #add a more pre preocessing stpe. 
@@ -83,11 +128,6 @@ class PreProcessingImages:
         return resized_bgr, file_path.name
 
 
-#EfficientNet embeddings
-
-
-#MobileNetV3 for weak computers. 
-#add DINOv3
 
 class DeepEmbedding:
     def __init__(
@@ -100,7 +140,6 @@ class DeepEmbedding:
         self.File_Name = Path(File_Name)
         self.Files_Training = Files_Training
         self.Embeddings = Embeddings if Embeddings is not None else []
-
         self.model_config = model_config or {
     "resnet": {
         "batch_size": 32,
@@ -121,13 +160,21 @@ class DeepEmbedding:
         "batch_size": 32
     },
 
-    "efficientnet": {
-        "model_name": "efficientnet_b0",
+    "MobileNetV3": {
+        "model_name": "mobilenet_v3_small",
         "image_size": (224, 224),
-        "embedding_size": 1280,
+        "embedding_size": 576,
+        "batch_size": 32
+    },
+    "DINOv3" : {
+        "model_name": "facebook/dinov3-vits16-pretrain-lvd1689m",
+        "image_size": (224, 224),
+        "embedding_size": 384,
         "batch_size": 32
     }
-}
+    
+    }
+
     
     def res_net(self, Files_Training=None, Embeddings: list | None = None):
 
@@ -510,8 +557,310 @@ class DeepEmbedding:
             "device": device,
         }
     #this is my custom model using tensotr  flow. 
+    def MobileNetV3_USL(
+        self,
+        Files_Training=None,
+        Embeddings: list | None = None
+    ):
+        model_config = self.model_config["MobileNetV3"]
 
-#Can use desciptotrs 
+        def hyperparameters():
+            batch_size = model_config["batch_size"]
+            image_size = model_config["image_size"]
+            embedding_size = model_config["embedding_size"]
+            model_name = model_config["model_name"]
+
+            return {
+                "batch_size": max(1, int(batch_size)),
+                "image_size": tuple(image_size),
+                "embedding_size": int(embedding_size),
+                "model_name": model_name,
+            }
+
+    
+        def collect_image_files(data_folder: Path) -> list[Path]:
+            data_folder = Path(data_folder)
+
+            image_extensions = {
+                ".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff", ".webp"
+            }
+
+            if not data_folder.exists():
+                raise FileNotFoundError(f"Data folder does not exist: {data_folder}")
+
+            if not data_folder.is_dir():
+                raise NotADirectoryError(f"Data path is not a folder: {data_folder}")
+
+            image_files = sorted([
+                file_path
+                for file_path in data_folder.rglob("*")
+                if file_path.is_file()
+                and file_path.suffix.lower() in image_extensions
+            ])
+
+            if len(image_files) == 0:
+                raise ValueError("No image files found.")
+
+            print(f"Images found: {len(image_files)}")
+
+            return image_files
+
+        def load_pil_image(file_path: Path):
+            try:
+                with Image.open(file_path) as img:
+                    return img.convert("RGB")
+            except Exception as e:
+                print(f"Could not read image: {file_path.name} | {e}")
+                return None 
+            
+        config = hyperparameters()
+        batch_size = config["batch_size"]
+        model_name = config["model_name"]
+
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        print(f"Using device: {device}")
+
+
+        weights = MobileNet_V3_Small_Weights.DEFAULT
+        preprocess = weights.transforms()
+
+        model = mobilenet_v3_small(weights=weights)
+        model = model.to(device)
+
+        model.eval()
+
+
+        if Files_Training is None:
+            Files_Training = self.File_Name
+
+        if isinstance(Files_Training, (str, Path)):
+            image_files = collect_image_files(Files_Training)
+        else:
+            image_files = [Path(file) for file in Files_Training]
+
+        if len(image_files) == 0:
+            raise ValueError("No image files were provided.")
+
+        embedding_batches = []
+        embedding_file_names = []
+        embedding_file_paths = []
+
+        for start_idx in range(0, len(image_files), batch_size):
+            batch_paths = image_files[start_idx:start_idx + batch_size]
+
+            batch_images = []
+            valid_paths = []
+
+            for file_path in batch_paths:
+                image = load_pil_image(file_path)
+
+                if image is None:
+                    continue
+
+                batch_images.append(image)
+                valid_paths.append(file_path)
+
+            if len(batch_images) == 0:
+                continue
+
+            processed_images = [
+                preprocess(image)
+                for image in batch_images
+            ]
+
+            pixel_values = torch.stack(processed_images).to(device)
+
+            with torch.no_grad():
+                image_features = model.features(pixel_values)
+                image_features = model.avgpool(image_features)
+                image_features = torch.flatten(image_features, 1)
+
+            batch_embeddings = image_features.cpu().numpy().astype(np.float32)
+
+            embedding_batches.append(batch_embeddings)
+
+            for file_path in valid_paths:
+                embedding_file_names.append(file_path.name)
+                embedding_file_paths.append(file_path)
+
+            print(
+                f"Processed batch {start_idx // batch_size + 1} | "
+                f"Total embedded so far: {len(embedding_file_names)}"
+            )
+
+
+        if len(embedding_batches) == 0:
+            embeddings_array = np.empty(
+                (0, config["embedding_size"]),
+                dtype=np.float32
+            )
+        else:
+            embeddings_array = np.vstack(embedding_batches).astype(np.float32)
+
+        print(f"MObile_net_v3_small embeddings created: {embeddings_array.shape}")
+
+        self.Embeddings = embeddings_array
+
+        if embeddings_array.shape[0] > 0:
+            config["actual_embedding_size"] = embeddings_array.shape[1]
+
+        # -------------------------
+        # 7. Return results
+        # -------------------------
+        return {
+            "model": model,
+            "config": config,
+            "image_files": image_files,
+            "embeddings": embeddings_array,
+            "embedding_file_names": embedding_file_names,
+            "embedding_file_paths": embedding_file_paths,
+            "device": device,
+        }
+    
+    def DINOv3_USL(self , Files_Training=None , Embeddings: list | None = None):
+        model_config = self.model_config["DINOv3"]
+
+        def hyperparameters():
+            batch_size = model_config["batch_size"]
+            image_size = model_config["image_size"]
+            embedding_size = model_config["embedding_size"]
+            model_name = model_config["model_name"]
+
+            return {
+                "batch_size": max(1, int(batch_size)),
+                "image_size": tuple(image_size),
+                "embedding_size": int(embedding_size),
+                "model_name": model_name,
+            }
+            
+        def collect_image_files(data_folder: Path) -> list[Path]:
+            data_folder = Path(data_folder)
+
+            image_extensions = {
+                ".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff", ".webp"
+            }
+
+            if not data_folder.exists():
+                raise FileNotFoundError(f"Data folder does not exist: {data_folder}")
+
+            if not data_folder.is_dir():
+                raise NotADirectoryError(f"Data path is not a folder: {data_folder}")
+
+            image_files = sorted([
+                file_path
+                for file_path in data_folder.rglob("*")
+                if file_path.is_file()
+                and file_path.suffix.lower() in image_extensions
+            ])
+
+            if len(image_files) == 0:
+                raise ValueError("No image files found.")
+
+            print(f"Images found: {len(image_files)}")
+
+            return image_files
+
+        def load_pil_image(file_path: Path):
+            try:
+                with Image.open(file_path) as img:
+                    return img.convert("RGB")
+            except Exception as e:
+                print(f"Could not read image: {file_path.name} | {e}")
+                return None 
+
+        config = hyperparameters()
+        batch_size = config["batch_size"]
+        model_name = config["model_name"]
+
+        # Load the processor and the model
+        model_id = "facebook/dinov3-vits16-pretrain-lvd1689m"
+        processor = AutoImageProcessor.from_pretrained(model_id)
+        model = AutoModel.from_pretrained(model_id)
+
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        print(f"Using device: {device}")
+
+
+        if Files_Training is None:
+            Files_Training = self.File_Name
+
+        if isinstance(Files_Training, (str, Path)):
+            image_files = collect_image_files(Files_Training)
+        else:
+            image_files = [Path(file) for file in Files_Training]
+
+        if len(image_files) == 0:
+            raise ValueError("No image files were provided.")
+
+        embedding_batches = []
+        embedding_file_names = []
+        embedding_file_paths = []
+
+        for start_idx in range(0, len(image_files), batch_size):
+            batch_paths = image_files[start_idx:start_idx + batch_size]
+
+            batch_images = []
+            valid_paths = []
+
+            for file_path in batch_paths:
+                image = load_pil_image(file_path)
+
+                if image is None:
+                    continue
+
+                batch_images.append(image)
+                valid_paths.append(file_path)
+
+            if not batch_images:
+                continue
+
+            # Process the entire batch using DINOv3's processor
+            inputs = processor(
+                images=batch_images,
+                return_tensors="pt"
+            ).to(device)
+
+            # Run the images through DINOv3
+            with torch.inference_mode():
+                outputs = model(**inputs)
+
+                # First token is the whole-image CLS embedding
+                cls_token = outputs.last_hidden_state[:, 0, :]
+
+                # Optional but useful for clustering and similarity
+                cls_token = torch.nn.functional.normalize(
+                    cls_token,
+                    p=2,
+                    dim=1
+                )
+
+            batch_embeddings = (
+                cls_token
+                .cpu()
+                .numpy()
+                .astype(np.float32)
+            )
+
+            embedding_batches.append(batch_embeddings)
+
+            for file_path in valid_paths:
+                embedding_file_names.append(file_path.name)
+                embedding_file_paths.append(file_path)
+
+            print(
+                f"Processed batch {start_idx // batch_size + 1} | "
+                f"Total embedded so far: {len(embedding_file_names)}"
+            )
+
+        return {
+            "model": model,
+            "config": config,
+            "image_files": image_files,
+            "embeddings": np.vstack(embedding_batches).astype(np.float32) if embedding_batches else np.empty((0, config["embedding_size"]), dtype=np.float32),
+            "embedding_file_names": embedding_file_names,
+            "embedding_file_paths": embedding_file_paths,
+            "device": device,
+        }
 class Descriptors:
     FeatureDict = dict[str, list[Any]]
 
@@ -754,7 +1103,6 @@ class Descriptors:
                     combined[out_key] = values
             return combined
 
-#add more data analyticis and measurements 
 class DescriptorAnalysis:
 
     def __init__(self, combined: dict, img_count: int , desc_list:list[NDArray]):
@@ -1079,7 +1427,6 @@ class DescriptorAnalysis:
 
         return cluster_count
 
-#need more sequestrration methods
 class K_Means_Comparision_sequester:
     """Cluster images and copy them into folders by cluster label."""
 
@@ -1147,22 +1494,29 @@ class K_Means_Comparision_sequester:
 class excution():
     def __init__(self , data_folder , output_folder):
         
-        self.data_folder = data_folder
-        self.output_folder = output_folder
+        self.data_folder = Path(data_folder)
+        self.output_folder = Path(output_folder)
     
-    def validate_folers(self):
+    def validate_folders(self):
+        if not self.data_folder.exists():
+            raise FileNotFoundError(
+                f"Data folder does not exist: {self.data_folder}"
+            )
 
-        try: 
-            if not self.data_folder.exists():
-                raise FileNotFoundError(f"Data folder does not exist: {self.data_folde}")
-        except Exception as e:
-            os.makedirs()
-        try:
-            if not self.output_folder.is_dir():
-                raise NotADirectoryError(f"Data path is not a folder: {self.output_folder}")
-        except Exception as e:
-            os.makedirs()
-   
+        if not self.data_folder.is_dir():
+            raise NotADirectoryError(
+                f"Data path is not a folder: {self.data_folder}"
+            )
+
+        if self.output_folder.exists() and not self.output_folder.is_dir():
+            raise NotADirectoryError(
+                f"Output path is not a folder: {self.output_folder}"
+            )
+
+        self.output_folder.mkdir(
+            parents=True,
+            exist_ok=True
+        )
     def run_embedding_cluster_pipeline(self , method_name: str,embedding_results: dict, output_folder: Path):
             X = embedding_results["embeddings"]
             file_names = embedding_results["embedding_file_names"]
@@ -1182,9 +1536,9 @@ class excution():
             #
             analysis = DescriptorAnalysis(
                 combined=combined,
-                img_count=len(file_names)
+                img_count=len(file_names),
+                desc_list=[]
             )
-
             X_scaled = analysis.scale_features(X)
 
             umap_result = analysis.run_umap(X_scaled)
@@ -1229,29 +1583,95 @@ class excution():
 
 
     #this needs to be more dyanmic  I need to pass in the list 
-    def embedding_extraction(self , methods:list):
-        self.methods = inspect.getmembers(DeepEmbedding, predicate=inspect.isfunction)
+    def embedding_extraction(self, methods: list[str] | None = None):
         deep = DeepEmbedding(
-                File_Name=self.data_folder,
-                Embeddings=[]
-            )
-        #select the methods 
+            File_Name=self.data_folder,
+            Embeddings=[]
+        )
 
-        try: 
-                # 4. Run CLIP
-                method_result = deep.clip(
+        available_methods = {
+            "ResNet": deep.res_net,
+            "CLIP": deep.clip,
+            "MobileNetV3": deep.MobileNetV3_USL,
+            "DINOv3": deep.DINOv3_USL,
+        }
+
+        # Run all four unless specific methods were supplied
+        selected_methods = methods or list(available_methods.keys())
+
+        clustering_results = {}
+        failed_methods = {}
+
+        for method_name in selected_methods:
+            if method_name not in available_methods:
+                print(f"Unknown embedding method: {method_name}")
+                failed_methods[method_name] = "Method does not exist."
+                continue
+
+            print(f"\nRunning {method_name} embedding extraction...")
+
+            try:
+                embedding_method = available_methods[method_name]
+
+                method_result = embedding_method(
                     Files_Training=self.data_folder,
                     Embeddings=[]
                 )
 
-                clip_labels = excution.run_embedding_cluster_pipeline(
-                    method_name="CLIP",
+                labels = self.run_embedding_cluster_pipeline(
+                    method_name=method_name,
                     embedding_results=method_result,
                     output_folder=self.output_folder
                 )
-        except Exception as e:
-                print("error")
+
+                clustering_results[method_name] = labels
+
+                print(f"{method_name} completed successfully.")
+
+            except Exception as error:
+                failed_methods[method_name] = str(error)
+                print(f"{method_name} failed: {error}")
+
+            finally:
+                # Helps release GPU memory before loading the next model
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+
+        return {
+            "clustering_results": clustering_results,
+            "failed_methods": failed_methods,
+        }
 
 
 
-print(inspect.getmembers(DeepEmbedding, predicate=inspect.isfunction))
+print(inspect.getmembers(DeepEmbedding, predicate=inspect.isfunction))  
+
+
+if __name__ == "__main__":
+    test = excution(
+        data_folder=Path(""),
+        output_folder=Path(r"")
+    )
+
+    try:
+        test.validate_folders()
+
+        results = test.embedding_extraction(
+            methods=[
+                "ResNet",
+                "CLIP",
+                "MobileNetV3",
+                "DINOv3"
+            ]
+        )
+
+        print("\n===== FINAL RESULTS =====")
+
+        for method_name in results["clustering_results"]:
+            print(f"{method_name}: completed successfully")
+
+        for method_name, error in results["failed_methods"].items():
+            print(f"{method_name}: failed — {error}")
+
+    except Exception as error:
+        print(f"Pipeline failed: {error}")
