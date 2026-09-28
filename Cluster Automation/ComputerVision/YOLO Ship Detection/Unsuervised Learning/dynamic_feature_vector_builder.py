@@ -5,27 +5,19 @@ import shutil
 from io import BytesIO
 from pathlib import Path
 from typing import Any
-
-
 # Numerical and data processing
 import numpy as np
 import pandas as pd
 from numpy.typing import NDArray
-
-
 # Image processing
 import cv2
 from PIL import Image
 from skimage import data, exposure
 from skimage.feature import hog, local_binary_pattern
-
-
 # Visualization
 import matplotlib.pyplot as plt
 import seaborn as sns
 from matplotlib.offsetbox import AnnotationBbox, OffsetImage
-
-
 # Scikit-learn
 from sklearn.cluster import KMeans
 from sklearn.datasets import make_blobs
@@ -426,9 +418,7 @@ class DeepEmbedding:
                 print(f"Could not read image: {file_path.name} | {e}")
                 return None
 
-        # -------------------------
-        # 1. Config
-        # -------------------------
+
         config = hyperparameters()
         batch_size = config["batch_size"]
         model_name = config["model_name"]
